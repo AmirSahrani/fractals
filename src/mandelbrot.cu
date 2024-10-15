@@ -1,31 +1,40 @@
 #include <cuComplex.h>
-
+#include <mandelbrot.c>
+#include <vector_types.h>
 
 __device__ cuDoubleComplex cpow(cuDoubleComplex z, int power) {
-    cuDoubleComplex result = make_cuDoubleComplex(1.0, 0.0);
-    for (int i = 0; i < power; i++) {
-        result = cuCmul(result, z);
-    }
-    return result;
+  cuDoubleComplex result = make_cuDoubleComplex(1.0, 0.0);
+  for (int i = 0; i < power; i++) {
+    result = cuCmul(result, z);
+  }
+  return result;
 }
 
-__global__ void iterate_mandelbrot(cuDoubleComplex* c, int* iterations, int width, int height, int max_iterations, int power)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int idy = blockIdx.y * blockDim.y + threadIdx.y;
-    if (idx >= width || idy >= height) return;
-    int index = idy * width + idx;
+__device__ int iterate_mandelbrotGPU(cuDoubleComplex start_c) {
+  float bound = 2;
+  cuDoubleComplex z = start_c;
+  int iter;
 
-    cuDoubleComplex z = make_cuDoubleComplex(0.0, 0.0);
-    int iter;
-
-    for (iter = 0; iter < max_iterations; iter++) {
-        if (cuCabs(z) > 2.0) break;
-        
-        z = cuCadd(cpow(z, power), c[index]);
+  for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
+    z = cuCadd(cpow((cuDoubleComplex)z, 5.0), start_c);
+    if (cuCabs(z) > 2.0) {
+      return iter;
     }
-
-    iterations[index] = iter;
+  };
+  return MAX_ITERATIONS;
 }
 
+__global__ void GPUIterations(double complex_plane[SCREENWIDTH][2],
+                              int *results, int width, int height,
+                              int max_iterations) {
+  int index = blockIdx.x * blockDim.x;
+  int stride = blockDim.x * gridDim.x;
 
+  for (int i = index; i < width * height; i += stride) {
+    if (i < SCREENWIDTH * 2) {
+      cuDoubleComplex c =
+          make_cuDoubleComplex(complex_plane[i][0], complex_plane[i][1]);
+      results[i] = iterate_mandelbrotGPU(c);
+    }
+  }
+}

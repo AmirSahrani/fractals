@@ -1,17 +1,19 @@
 #include "raylib.h"
 #include <complex.h>
-#include <math.h>
-/*#include <cuda_runtime.h>*/
-/*#include <cuComplex.h>*/
+#include <cuComplex.h>
+#include <cuda_runtime.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+/*#include "mandelbrot.cu"*/
 
-#define MAX_ITERATIONS 100
+#define MAX_ITERATIONS 300
 #define PALETTE_SIZE 5
-#define NUM_THREADS 8
-#define SCREENWIDTH 600
-#define SCREENHEIGHT 600
+#define NUM_THREADS 64
+#define SCREENWIDTH 1920
+#define SCREENHEIGHT 1080
+
+#define GPU 1
 
 typedef struct {
   int start_row;
@@ -28,11 +30,8 @@ int iterate_mandelbrot(double complex start_c) {
   double complex z = start_c;
   int iter;
 
-  // main cardiod checking
-  /*if ((pow(creall(z) + 1.0, 2) + pow(cimagl(z), 2)) < 1.0 / 16.0)*/
-  /*  return MAX_ITERATIONS;*/
   for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
-    z = cpow(z, 5.0) + start_c;
+    z = cpow(z, 2.0) + start_c;
     if (cabs(z) > 2.0) {
       return iter;
     }
@@ -47,7 +46,7 @@ void *parallelIterations(void *args) {
       double complex c = (*data->complex_plane)[i * data->height + j][0] +
                          (*data->complex_plane)[i * data->height + j][1] * I;
       int result = iterate_mandelbrot(c);
-      (*data->grid)[i * data->height + j] = result; 
+      (*data->grid)[i * data->height + j] = result;
     }
   }
   return NULL;
@@ -141,8 +140,8 @@ void iterateOverGrid(int width, int height,
 
 int main(void) {
 
-  const int screenWidth = 1000;
-  const int screenHeight = 1000;
+  const int screenWidth = SCREENWIDTH;
+  const int screenHeight = SCREENHEIGHT;
   double(*grid)[screenHeight][2] =
       malloc(sizeof(double[screenWidth][screenHeight][2]));
   int(*mandelbrotSet)[screenHeight] =
@@ -158,7 +157,7 @@ int main(void) {
 
   InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
 
-  SetTargetFPS(60); // Set our game to run at 60 frames-per-second
+  SetTargetFPS(20); // Set our game to run at 60 frames-per-second
   //--------------------------------------------------------------------------------------
 
   // Main game loop
@@ -166,19 +165,28 @@ int main(void) {
   int start_y = 0;
   int curr_x = 0;
   int curr_y = 0;
+  Image mandelbrotImage = GenImageColor(screenWidth, screenHeight, BLACK);
   while (!WindowShouldClose()) // Detect window close button or ESC key
   {
     // Update
     // Draw
     //----------------------------------------------------------------------------------
     BeginDrawing();
-    ClearBackground(RAYWHITE);
-    for (int i = 0; i < screenWidth; i++) {
+    ClearBackground(BLACK);
 
+    // Fill the image with Mandelbrot set data
+    for (int i = 0; i < screenWidth; i++) {
       for (int j = 0; j < screenHeight; j++) {
-        DrawPixel(i, j, getColor(mandelbrotSet[i][j]));
-      };
-    };
+        Color pixelColor = getColor(mandelbrotSet[i][j]);
+        ImageDrawPixel(&mandelbrotImage, i, j, pixelColor);
+      }
+    }
+
+    Texture2D mandelbrotTexture = LoadTextureFromImage(mandelbrotImage);
+
+    BeginDrawing();
+    DrawTexture(mandelbrotTexture, 0, 0, WHITE);
+
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
       start_x = GetMouseX();
       start_y = GetMouseY();
@@ -187,8 +195,25 @@ int main(void) {
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
       curr_x = GetMouseX();
       curr_y = GetMouseY();
-      DrawRectangleLines(start_x, start_y, curr_x - start_x, curr_y - start_y,
+      DrawRectangleLines(start_x, start_y, curr_x - start_x, (curr_y - start_y),
                          RAYWHITE);
+    }
+
+    if (GetMouseWheelMove() != 0) {
+      curr_x = GetMouseX();
+      curr_y = GetMouseY();
+      float direction = -GetMouseWheelMove();
+      if (x_scale < 1.0 || direction == -1.0) {
+        x_scale *= 1.0 + 0.05 * direction;
+        y_scale *= 1.0 + 0.05 * direction;
+        x_start = grid[start_x][start_y][0] - ( 0.05 * direction) * grid[start_x][start_y][0];
+        y_start = grid[start_x][start_y][1]- (0.05 * direction) * grid[start_x][start_y][1];
+
+        pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start,
+                       y_start, grid);
+        iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
+                        MAX_ITERATIONS);
+      };
     }
     if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
       x_start = grid[start_x][start_y][0];
@@ -199,7 +224,10 @@ int main(void) {
                      y_start, grid);
       iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
                       MAX_ITERATIONS);
-
+      /*if (GPU)*/
+      /*  GPUIterations();*/
+      /*else{*/
+      /*};*/
       /*printf("scale x: %f\n", x_scale);*/
       /*printf("scale y: %f\n", y_scale);*/
     }
@@ -208,6 +236,7 @@ int main(void) {
     //----------------------------------------------------------------------------------
   }
 
+  UnloadImage(mandelbrotImage);
   // De-Initialization
   //--------------------------------------------------------------------------------------
   CloseWindow(); // Close window and OpenGL context
