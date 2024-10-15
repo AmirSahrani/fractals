@@ -1,30 +1,92 @@
 #include "raylib.h"
 #include <complex.h>
 #include <math.h>
-#include <cuda_runtime.h>
-#include <cuComplex.h>
+/*#include <cuda_runtime.h>*/
+/*#include <cuComplex.h>*/
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-int iterate_mandelbrot(double complex start_c, int max_iterations) {
+#define MAX_ITERATIONS 100
+#define PALETTE_SIZE 5
+#define NUM_THREADS 8
+#define SCREENWIDTH 600
+#define SCREENHEIGHT 600
+
+typedef struct {
+  int start_row;
+  int end_row;
+  int width;
+  int height;
+  double (*complex_plane)[SCREENHEIGHT][2];
+  int (*grid)[SCREENHEIGHT];
+  int max_iterations;
+} ThreadData;
+
+int iterate_mandelbrot(double complex start_c) {
   float bound = 2;
   double complex z = start_c;
   int iter;
 
-  for (iter = 0; (iter < max_iterations); iter++) {
-    z = cpow(z, 3.0) + start_c;
+  // main cardiod checking
+  /*if ((pow(creall(z) + 1.0, 2) + pow(cimagl(z), 2)) < 1.0 / 16.0)*/
+  /*  return MAX_ITERATIONS;*/
+  for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
+    z = cpow(z, 5.0) + start_c;
     if (cabs(z) > 2.0) {
       return iter;
     }
   };
-  return max_iterations;
+  return MAX_ITERATIONS;
 }
 
-Color getColor(int iterations, int max_iterations) {
-  if (iterations == max_iterations)
-    return WHITE;
-  float t = (float)iterations / max_iterations;
-  return ColorFromHSV(170 * t, 1.0f, pow(t, 2.0));
+void *parallelIterations(void *args) {
+  ThreadData *data = (ThreadData *)args;
+  for (int i = data->start_row; i < data->end_row; i++) {
+    for (int j = 0; j < data->height; j++) {
+      double complex c = (*data->complex_plane)[i * data->height + j][0] +
+                         (*data->complex_plane)[i * data->height + j][1] * I;
+      int result = iterate_mandelbrot(c);
+      (*data->grid)[i * data->height + j] = result; 
+    }
+  }
+  return NULL;
+}
+
+// Define the color palette
+Color palette[PALETTE_SIZE] = {
+    (Color){139, 191, 159, 255}, // green
+    (Color){131, 188, 255, 255}, // blue
+    (Color){18, 69, 89, 255},    // midnight
+    (Color){89, 52, 79, 255},    // violet
+    (Color){238, 32, 77, 255}    // crayola
+};
+
+Color getColor(int iterations) {
+  if (iterations == MAX_ITERATIONS) {
+    return palette[2]; // midnight for points inside the set
+  }
+
+  // Split the remaining colors into 4 sections
+  int section = iterations / 25;
+  Color color;
+
+  switch (section) {
+  case 0:
+    color = palette[0]; // green
+    break;
+  case 1:
+    color = palette[1]; // blue
+    break;
+  case 2:
+    color = palette[3]; // violet
+    break;
+  case 3:
+    color = palette[4]; // crayola
+    break;
+  };
+  float factor = (float)(iterations % 25) / 25.0f;
+  return ColorBrightness(color, factor - 0.5f);
 }
 
 void pixelsToCoords(int x, int y, float x_scale, float y_scale, float x_start,
@@ -48,24 +110,39 @@ void pixelsToCoords(int x, int y, float x_scale, float y_scale, float x_start,
   };
 }
 
-// Convert this to a cuda function, for loops should go over blocks and strides, also for simplicity make this one long array
-// you can do some modulo arithmatic to make sense of it :)
 void iterateOverGrid(int width, int height,
-                     double complex_plane[width][height][2],
-                     int grid[width][height], int max_iterations) {
-  for (int i = 0; i < width; i++) {
-    for (int j = 0; j < height; j++) {
-      double complex c = complex_plane[i][j][0] + complex_plane[i][j][1] * I;
-      grid[i][j] = iterate_mandelbrot(c, max_iterations);
-    };
+                     double (*complex_plane)[SCREENHEIGHT][2],
+                     int (*grid)[SCREENHEIGHT], int max_iterations) {
+  pthread_t threads[NUM_THREADS];
+  ThreadData thread_data[NUM_THREADS];
+
+  int rows_per_thread = width / NUM_THREADS;
+  int extra_rows = width % NUM_THREADS;
+  int start_row = 0;
+  for (int i = 0; i < NUM_THREADS; i++) {
+    thread_data[i].start_row = start_row;
+    // bit magic??
+    thread_data[i].end_row =
+        start_row + rows_per_thread + (i < extra_rows ? 1 : 0);
+    thread_data[i].width = width;
+    thread_data[i].height = height;
+    thread_data[i].complex_plane = complex_plane;
+    thread_data[i].grid = grid;
+    thread_data[i].max_iterations = max_iterations;
+
+    pthread_create(&threads[i], NULL, parallelIterations, &thread_data[i]);
+    start_row = thread_data[i].end_row;
   };
+
+  for (int i = 0; i < NUM_THREADS; i++) {
+    pthread_join(threads[i], NULL);
+  }
 }
 
 int main(void) {
 
   const int screenWidth = 1000;
   const int screenHeight = 1000;
-  const int maxIterations = 100;
   double(*grid)[screenHeight][2] =
       malloc(sizeof(double[screenWidth][screenHeight][2]));
   int(*mandelbrotSet)[screenHeight] =
@@ -77,7 +154,7 @@ int main(void) {
   pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start, y_start,
                  grid);
   iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
-                  maxIterations);
+                  MAX_ITERATIONS);
 
   InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
 
@@ -99,7 +176,7 @@ int main(void) {
     for (int i = 0; i < screenWidth; i++) {
 
       for (int j = 0; j < screenHeight; j++) {
-        DrawPixel(i, j, getColor(mandelbrotSet[i][j], maxIterations));
+        DrawPixel(i, j, getColor(mandelbrotSet[i][j]));
       };
     };
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
@@ -121,7 +198,7 @@ int main(void) {
       pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start,
                      y_start, grid);
       iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
-                      maxIterations);
+                      MAX_ITERATIONS);
 
       /*printf("scale x: %f\n", x_scale);*/
       /*printf("scale y: %f\n", y_scale);*/
