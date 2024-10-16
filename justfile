@@ -1,10 +1,11 @@
 alias b := build
+alias r := run 
 
 build:
   cc src/mandelbrot.c src/raygui.h -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o tgt/mandelbrot
 
 run:
-  cc src/mandelbrot.c src/raygui.h -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o tgt/mandelbrot
+  cc src/mandelbrot.c -o tgt/mandelbrot -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
   ./tgt/mandelbrot
 gpu:
  nvcc src/mandelbrot.c -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -o tgt/mandelbrot

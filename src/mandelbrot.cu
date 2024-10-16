@@ -1,8 +1,8 @@
 #include <cuComplex.h>
-#include <mandelbrot.c>
 #include <vector_types.h>
+#include "mandelbrot.h"
 
-__device__ cuDoubleComplex cpow(cuDoubleComplex z, int power) {
+__device__ cuDoubleComplex cupow(cuDoubleComplex z, int power) {
   cuDoubleComplex result = make_cuDoubleComplex(1.0, 0.0);
   for (int i = 0; i < power; i++) {
     result = cuCmul(result, z);
@@ -16,8 +16,8 @@ __device__ int iterate_mandelbrotGPU(cuDoubleComplex start_c) {
   int iter;
 
   for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
-    z = cuCadd(cpow((cuDoubleComplex)z, 5.0), start_c);
-    if (cuCabs(z) > 2.0) {
+    z = cuCadd(cupow((cuDoubleComplex)z, 5.0), start_c);
+    if (cuCabs(z) > exponent) {
       return iter;
     }
   };

@@ -1,3 +1,5 @@
+#define RAYGUI_IMPLEMENTATION
+/*#include "mandelbrot.cu"*/
 #include "raygui.h"
 #include "raylib.h"
 #include <complex.h>
@@ -10,10 +12,11 @@
 #define MAX_ITERATIONS 300
 #define PALETTE_SIZE 5
 #define NUM_THREADS 64
-#define SCREENWIDTH 1920 / 2
-#define SCREENHEIGHT 1080 / 2
+#define SCREENWIDTH 1920
+#define SCREENHEIGHT 1080
 #define GPU 1
 
+float exponent = 2.0;
 typedef struct {
   int start_row;
   int end_row;
@@ -28,14 +31,13 @@ int iterate_mandelbrot(double complex start_c) {
   float bound = 2;
   double complex z = start_c;
   int iter;
-  float power = 3.8;
 
   // main cardiod checking
-  /*if ((power == 2.0 && pow(creall(z) + 1.0, 2) + pow(cimagl(z), 2)) < 1.0
-   * / 16.0)*/
-  /*  return MAX_ITERATIONS;*/
+  if ((exponent == 2.0 && pow(creall(z) + 1.0, 2) + pow(cimagl(z), 2)) <
+      1.0 / 16.0)
+    return MAX_ITERATIONS;
   for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
-    z = cpow(z, power) + start_c;
+    z = cpow(z, exponent) + start_c;
     if (cabs(z) > 2.0) {
       return iter;
     }
@@ -142,6 +144,65 @@ void iterateOverGrid(int width, int height,
   }
 }
 
+void selection(int *origin_x, int *origin_y, float *min_real,
+               float *min_imaginary, int *destination_x, int *destination_y,
+               float *zoom_x, float *zoom_y,
+               double grid[SCREENWIDTH][SCREENHEIGHT][2],
+               int mandelbrotSet[SCREENWIDTH][SCREENHEIGHT]) {
+
+  if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    *origin_x = GetMouseX();
+    *origin_y = GetMouseY();
+  };
+
+  if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && GetMouseX() > 120 &&
+      GetMouseY() > 40) {
+    *destination_x = GetMouseX();
+    *destination_y = GetMouseY();
+    DrawRectangleLines(*origin_x, *origin_y, *destination_x - *origin_x,
+                       (*destination_y - *origin_y), RAYWHITE);
+  }
+
+  if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && GetMouseX() > 120 &&
+      GetMouseY() > 30) {
+    *min_real = grid[*origin_x][*origin_y][0];
+    *min_imaginary = grid[*origin_x][*origin_y][1];
+    *zoom_x *= ((*destination_x - *origin_x) / (float)SCREENWIDTH);
+    *zoom_y *= ((*destination_y - *origin_y) / (float)SCREENHEIGHT);
+    pixelsToCoords(SCREENWIDTH, SCREENHEIGHT, *zoom_x, *zoom_y, *min_real,
+                   *min_imaginary, grid);
+    iterateOverGrid(SCREENWIDTH, SCREENHEIGHT, grid, mandelbrotSet,
+                    MAX_ITERATIONS);
+  }
+};
+
+void scroll(int *origin_x, int *origin_y, float *min_real, float *min_imaginary,
+            float *zoom_x, float *zoom_y,
+            double grid[SCREENWIDTH][SCREENHEIGHT][2],
+            int mandelbrotSet[SCREENWIDTH][SCREENHEIGHT]) {
+  int dest_x;
+  int dest_y;
+  if (GetMouseWheelMove() != 0) {
+    dest_x = GetMouseX();
+    dest_y = GetMouseY();
+    float direction = -GetMouseWheelMove();
+    if (*zoom_x < 1.0 || direction == -1.0) {
+      *zoom_x *= 1.0 + 0.05 * direction;
+      *zoom_y *= 1.0 + 0.05 * direction;
+
+      *min_real = grid[*origin_x][*origin_y][0] -
+                  (0.05 * direction) * grid[*origin_x][*origin_y][0];
+      *min_imaginary = grid[*origin_x][*origin_y][1] -
+                       (0.05 * direction) * grid[*origin_x][*origin_y][1];
+
+      pixelsToCoords(SCREENWIDTH, SCREENHEIGHT, *zoom_x, *zoom_x, *min_real,
+                     *min_imaginary, grid);
+      iterateOverGrid(SCREENWIDTH, SCREENHEIGHT, grid, mandelbrotSet,
+                      MAX_ITERATIONS);
+    };
+  }
+};
+
 int main(void) {
 
   const int screenWidth = SCREENWIDTH;
@@ -152,34 +213,40 @@ int main(void) {
       malloc(sizeof(int[screenWidth][screenHeight]));
   float x_scale = 1.0;
   float y_scale = 1.0;
-  float x_start = -2.0;
-  float y_start = -2.0;
-  pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start, y_start,
-                 grid);
+  float real_start = -2.0;
+  float imag_start = -2.0;
+  pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, real_start,
+                 imag_start, grid);
   iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
                   MAX_ITERATIONS);
 
   InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
 
-  SetTargetFPS(20); // Set our game to run at 60 frames-per-second
+  SetTargetFPS(10); // Set our game to run at 60 frames-per-second
   //--------------------------------------------------------------------------------------
 
   // Main game loop
-  int start_x = 0;
-  int start_y = 0;
-  int curr_x = 0;
-  int curr_y = 0;
+  int origin_x = 0;
+  int origin_y = 0;
+  int dest_x = 0;
+  int dest_y = 0;
+  Rectangle slider_box = (Rectangle){24, 24, 120, 30};
+  float start = 2.0, end = 7.0;
+  float last_exponent = exponent;
   Image mandelbrotImage = GenImageColor(screenWidth, screenHeight, BLACK);
   while (!WindowShouldClose()) // Detect window close button or ESC key
   {
-    // Update
-    // Draw
+    if (last_exponent != exponent) {
+      last_exponent = exponent;
+      iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
+                      MAX_ITERATIONS);
+      /*GPUIterations(grid, *mandelbrotSet, SCREENWIDTH, SCREENHEIGHT,*/
+      /*              MAX_ITERATIONS);*/
+    };
+
     //----------------------------------------------------------------------------------
     BeginDrawing();
     ClearBackground(BLACK);
-    Rectangle slider_box = (Rectangle){24, 24, 120, 30};
-    float start = 2.0, val = 2.0, end = 7.0;
-    GuiSliderBar(slider_box, "2", "9", &val, start, end);
     // Fill the image with Mandelbrot set data
     for (int i = 0; i < screenWidth; i++) {
       for (int j = 0; j < screenHeight; j++) {
@@ -190,49 +257,16 @@ int main(void) {
 
     Texture2D mandelbrotTexture = LoadTextureFromImage(mandelbrotImage);
 
-    BeginDrawing();
     DrawTexture(mandelbrotTexture, 0, 0, WHITE);
+    selection(&origin_x, &origin_y, &real_start, &imag_start, &dest_x, &dest_y,
+              &x_scale, &y_scale, grid, mandelbrotSet);
+    scroll(&origin_x, &origin_y, &real_start, &imag_start, &x_scale, &y_scale,
+           grid, mandelbrotSet);
 
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      start_x = GetMouseX();
-      start_y = GetMouseY();
-    };
-
-    if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-      curr_x = GetMouseX();
-      curr_y = GetMouseY();
-      DrawRectangleLines(start_x, start_y, curr_x - start_x, (curr_y - start_y),
-                         RAYWHITE);
-    }
-
-    if (GetMouseWheelMove() != 0) {
-      curr_x = GetMouseX();
-      curr_y = GetMouseY();
-      float direction = -GetMouseWheelMove();
-      if (x_scale < 1.0 || direction == -1.0) {
-        x_scale *= 1.0 + 0.05 * direction;
-        y_scale *= 1.0 + 0.05 * direction;
-        x_start = grid[start_x][start_y][0] -
-                  (0.05 * direction) * grid[start_x][start_y][0];
-        y_start = grid[start_x][start_y][1] -
-                  (0.05 * direction) * grid[start_x][start_y][1];
-
-        pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start,
-                       y_start, grid);
-        iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
-                        MAX_ITERATIONS);
-      };
-    }
-    if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
-      x_start = grid[start_x][start_y][0];
-      y_start = grid[start_x][start_y][1];
-      x_scale = x_scale * ((curr_x - start_x) / (float)screenWidth);
-      y_scale = y_scale * ((curr_y - start_y) / (float)screenHeight);
-      pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start,
-                     y_start, grid);
-      iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
-                      MAX_ITERATIONS);
-    }
+    GuiSliderBar(slider_box, "2", "7", &exponent, start, end);
+    char slider_val[10];
+    sprintf(slider_val, "%.2f", exponent);
+    DrawText(slider_val, 160, 30, 18, RAYWHITE);
     EndDrawing();
 
     //----------------------------------------------------------------------------------
