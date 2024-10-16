@@ -1,3 +1,4 @@
+#include "raygui.h"
 #include "raylib.h"
 #include <complex.h>
 #include <cuComplex.h>
@@ -5,14 +6,12 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-/*#include "mandelbrot.cu"*/
 
 #define MAX_ITERATIONS 300
 #define PALETTE_SIZE 5
 #define NUM_THREADS 64
-#define SCREENWIDTH 1920
-#define SCREENHEIGHT 1080
-
+#define SCREENWIDTH 1920 / 2
+#define SCREENHEIGHT 1080 / 2
 #define GPU 1
 
 typedef struct {
@@ -29,9 +28,14 @@ int iterate_mandelbrot(double complex start_c) {
   float bound = 2;
   double complex z = start_c;
   int iter;
+  float power = 3.8;
 
+  // main cardiod checking
+  /*if ((power == 2.0 && pow(creall(z) + 1.0, 2) + pow(cimagl(z), 2)) < 1.0
+   * / 16.0)*/
+  /*  return MAX_ITERATIONS;*/
   for (iter = 0; (iter < MAX_ITERATIONS); iter++) {
-    z = cpow(z, 2.0) + start_c;
+    z = cpow(z, power) + start_c;
     if (cabs(z) > 2.0) {
       return iter;
     }
@@ -173,7 +177,9 @@ int main(void) {
     //----------------------------------------------------------------------------------
     BeginDrawing();
     ClearBackground(BLACK);
-
+    Rectangle slider_box = (Rectangle){24, 24, 120, 30};
+    float start = 2.0, val = 2.0, end = 7.0;
+    GuiSliderBar(slider_box, "2", "9", &val, start, end);
     // Fill the image with Mandelbrot set data
     for (int i = 0; i < screenWidth; i++) {
       for (int j = 0; j < screenHeight; j++) {
@@ -206,8 +212,10 @@ int main(void) {
       if (x_scale < 1.0 || direction == -1.0) {
         x_scale *= 1.0 + 0.05 * direction;
         y_scale *= 1.0 + 0.05 * direction;
-        x_start = grid[start_x][start_y][0] - ( 0.05 * direction) * grid[start_x][start_y][0];
-        y_start = grid[start_x][start_y][1]- (0.05 * direction) * grid[start_x][start_y][1];
+        x_start = grid[start_x][start_y][0] -
+                  (0.05 * direction) * grid[start_x][start_y][0];
+        y_start = grid[start_x][start_y][1] -
+                  (0.05 * direction) * grid[start_x][start_y][1];
 
         pixelsToCoords(screenWidth, screenHeight, x_scale, y_scale, x_start,
                        y_start, grid);
@@ -224,12 +232,6 @@ int main(void) {
                      y_start, grid);
       iterateOverGrid(screenWidth, screenHeight, grid, mandelbrotSet,
                       MAX_ITERATIONS);
-      /*if (GPU)*/
-      /*  GPUIterations();*/
-      /*else{*/
-      /*};*/
-      /*printf("scale x: %f\n", x_scale);*/
-      /*printf("scale y: %f\n", y_scale);*/
     }
     EndDrawing();
 
@@ -238,7 +240,6 @@ int main(void) {
 
   UnloadImage(mandelbrotImage);
   // De-Initialization
-  //--------------------------------------------------------------------------------------
   CloseWindow(); // Close window and OpenGL context
   //--------------------------------------------------------------------------------------
 
